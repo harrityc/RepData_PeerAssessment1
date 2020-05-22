@@ -1,25 +1,116 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
+title: "PA1_template"
+author: "Chris Harrity"
+date: "May 15, 2020"
+output: html_document
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
 
-## Loading and preprocessing the data
+1. Loading and preprocessing the data.
+Let's get into this, shall we? 
 
+```{chunk2, echo = TRUE}
+library(dplyr)
+library(lubridate)
+library(stringr)
+library(ggplot2)
+data <- read.csv(".//activity.csv")
+data$date <- ymd(data$date)
 
+```
 
-## What is mean total number of steps taken per day?
+2. Histogram of mean total number of steps taken per day. Now with bonus median!
 
+```{chunk3, echo = TRUE}
+forhist <- data %>% group_by(date) %>% summarize(totalsteps = sum(steps, na.rm = TRUE))
+hist(forhist$totalsteps, ylab = "Total Steps", main = "Distribution of Total Daily Steps")
+summary(forhist$totalsteps)
+```
 
+3. Per the above, the mean number of steps taken in a day is 9354, whereas the median number of steps taken in a day is 10395.
 
-## What is the average daily activity pattern?
+4. Onto the average daily steps time chart!
 
+```{chunk4, echo = TRUE}
+data$interval <- as.character(data$interval)
 
+## I know I'm only forestalling the inevitable
+## by using stringr instead of regex, but I
+## really, really hate regex. 
 
-## Imputing missing values
+## Adds leading zeroes to time field where necessary.
 
+data$interpad <- str_pad(data$interval, 4, pad = "0")
 
+## Inserts colon.
 
-## Are there differences in activity patterns between weekdays and weekends?
+data$time <- str_c(str_sub(data$interpad, 1, -3), ":", str_sub(data$interpad, -2, -1))
+data <- select(data, -interpad)
+means <- data %>% group_by(time) %>% summarize(meansteps = mean(steps, na.rm = TRUE))
+means$time <- as.POSIXct(strptime(means$time, "%H:%M"))
+plot(means$time, means$meansteps, xlab = "Time of Day", ylab = "Average Steps Taken", main = "Average steps Taken by Time of Day")
+
+```
+
+5. Per the above, the five-minute interval with the greatest average number of steps is from 8:35 to 8:40 AM, with an average of 206 steps.
+
+6. Ready to impute some data? I'm going to use means by time interval, for I am nothing if not a coward who fears complexity.
+
+```{chunk5, echo=TRUE}
+
+## a) Total number of rows with NA values.
+
+sum(!complete.cases(data))
+
+## b/c) The imputation proper: 
+
+meansformerge <- data %>% group_by(time) %>% summarize(meansteps = mean(steps, na.rm = TRUE))
+dataimputed <- merge(data, meansformerge, "time")
+
+## Interpolates mean steps by time interval where
+## step value is NA. 
+
+dataimputed$imputedsteps <- coalesce(as.numeric(dataimputed$steps), dataimputed$meansteps)
+
+dataimputed$time <- as.POSIXct(strptime(dataimputed$time, "%H:%M"))
+
+```
+
+7. Let's make a histogram using these imputed data.
+
+```{chunk6, echo=TRUE}
+
+## d) The histogram.
+
+forhist2 <- dataimputed %>% group_by(date) %>% summarize(totalsteps = sum(imputedsteps, na.rm = TRUE))
+hist(forhist2$totalsteps, ylab = "Total Steps", main = "Distribution of Total Daily Steps, With Imputation")
+summary(forhist2$totalsteps)
+
+```
+
+Using this data imputation method, the mean number
+of steps taken in a day is now 10766, whereas the 
+median number of steps is now also 10766.
+
+8. Weekdays versus weekends: differences in activity?
+
+I used lubridate::wday() instead of weekend(), as R kept misreading the character output of the latter for some ungodly reason. I love you, Tidyverse.
+
+It should be noted that, unlike the base plot function, ggplot2 plots the full POSIXct on the x axis. For the life of me, I cannot figure out a way to get this pared down -- every method I tried on StackOverflow no longer seems to hold for the most recent version of the ggplot2 package. I tried, friends. 
+
+```{chunk6, echo=TRUE}
+
+## a) Generate weekend/weekday.
+
+dataimputed$weekdays <- wday(as.Date(dataimputed$date))
+dataimputed$daycategory <- ifelse(dataimputed$weekdays < 6, "weekday", "weekend")
+
+## b) Plot.
+
+forpanel <- dataimputed %>% group_by(time, daycategory) %>% summarize(meansteps = mean(imputedsteps, na.rm = TRUE))
+ggplot(forpanel, aes(time, meansteps), type = "l") + geom_line() + facet_wrap(~daycategory)
+
+```
